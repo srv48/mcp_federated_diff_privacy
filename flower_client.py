@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
-import psutil
 from models import SmallCNN, BigCNN
 from utils import get_system_context, select_model_based_on_context
 from privacy_wrapper import wrap_with_dp
