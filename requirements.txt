@@ -5,3 +5,4 @@ numpy
 psutil
 opacus
 streamlit
+onnx
