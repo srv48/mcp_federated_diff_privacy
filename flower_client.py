@@ -1,3 +1,5 @@
+# flower_client.py (Updated for MCP with unified federated model training)
+
 import flwr as fl
 import torch
 import torch.nn as nn
@@ -6,35 +8,52 @@ import torchvision.transforms as transforms
 from models import SmallCNN, BigCNN
 from utils import get_system_context, select_model_based_on_context
 from privacy_wrapper import wrap_with_dp
-
+import argparse
 import ssl
+import copy
+
+
+# Argument parsing for client ID
+parser = argparse.ArgumentParser()
+parser.add_argument("--client_id", type=int, required=True, help="Unique ID for the client")
+parser.add_argument(
+    "--model_type",
+    type=str,
+    choices=["big", "small"],
+    required=True,
+    help="Model type for the client: 'big' or 'small'"
+)
+args = parser.parse_args()
+CLIENT_ID = args.client_id
+
+
 ssl._create_default_https_context = ssl._create_unverified_context
 
-# Device configuration
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-# Load CIFAR-10 train and test sets
+# Load CIFAR-10
 transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize((0.5,), (0.5,))
 ])
-
 trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
 trainloader = torch.utils.data.DataLoader(trainset, batch_size=32, shuffle=True)
-
 testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
 testloader = torch.utils.data.DataLoader(testset, batch_size=32, shuffle=False)
 
-# Choose model based on system context
+# Context-aware model selection for local personalization (inference)
 context = get_system_context()
-model_choice = select_model_based_on_context(context)
-model = SmallCNN() if model_choice == "small" else BigCNN()
-model = model.to(DEVICE)
+model_choice = args.model_type
+local_model = BigCNN() if model_choice == "big" else SmallCNN()
 
-# Wrap model with differential privacy
-model, optimizer, privacy_engine = wrap_with_dp(model, trainloader)
+print("zzzzzz", local_model)
+# Unified model for federated training
+# global_model = SmallCNN().to(DEVICE)
 
-# Define the Flower client
+global_model = copy.deepcopy(local_model)
+
+global_model, optimizer, privacy_engine = wrap_with_dp(global_model, trainloader)
+
 class FlowerClient(fl.client.NumPyClient):
     def get_parameters(self, config):
         return [val.detach().cpu().numpy() for val in self.model.parameters()]
@@ -53,18 +72,20 @@ class FlowerClient(fl.client.NumPyClient):
             loss = nn.CrossEntropyLoss()(outputs, labels)
             loss.backward()
             optimizer.step()
+
+        save_path = f"client_{CLIENT_ID}_{model_choice}.pth"
+        latest_path = f"client_{CLIENT_ID}_{model_choice}.pth"
+        torch.save(self.model.state_dict(), save_path)
+        torch.save(self.model.state_dict(), latest_path)
+
         return self.get_parameters(config={}), len(trainloader.dataset), {}
 
     def evaluate(self, parameters, config):
         self.set_parameters(parameters)
+        print("hereee", self.model)
         self.model.eval()
-
-        loss_total = 0.0
-        correct = 0
-        total = 0
-
+        loss_total, correct, total = 0.0, 0, 0
         criterion = nn.CrossEntropyLoss()
-
         with torch.no_grad():
             for inputs, labels in testloader:
                 inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
@@ -74,13 +95,11 @@ class FlowerClient(fl.client.NumPyClient):
                 _, predicted = outputs.max(1)
                 correct += predicted.eq(labels).sum().item()
                 total += labels.size(0)
-
         loss_avg = loss_total / total
         accuracy = correct / total
-
+        print(f"[Client Eval] Accuracy: {accuracy:.4f}, Loss: {loss_avg:.4f}")
         return loss_avg, total, {"accuracy": accuracy}
 
-# Start Flower client
 client = FlowerClient()
-client.model = model
+client.model = local_model
 fl.client.start_numpy_client(server_address="0.0.0.0:8080", client=client)

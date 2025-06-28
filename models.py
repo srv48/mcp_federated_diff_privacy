@@ -4,29 +4,30 @@ import torch.nn.functional as F
 class SmallCNN(nn.Module):
     def __init__(self):
         super(SmallCNN, self).__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.conv = nn.Conv2d(3, 16, kernel_size=3, padding=1)
         self.pool = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(6 * 14 * 14, 10)
+        self.fc = nn.Linear(16 * 16 * 16, 10)
+        self.act = nn.ReLU6(inplace=True)  # Efficient ReLU
+        self.dropout = nn.Dropout(0.99)     # Lightweight regularization
 
     def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = x.view(-1, 6 * 14 * 14)
-        x = self.fc1(x)
+        x = self.pool(self.act(self.conv(x)))
+        x = x.view(x.size(0), -1)
+        x = self.dropout(x)
+        x = self.fc(x)
         return x
 
 class BigCNN(nn.Module):
     def __init__(self):
         super(BigCNN, self).__init__()
-        self.conv1 = nn.Conv2d(3, 16, 5)
-        self.conv2 = nn.Conv2d(16, 32, 5)
+        self.conv = nn.Conv2d(3, 16, kernel_size=3, padding=1)
         self.pool = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(32 * 5 * 5, 120)
-        self.fc2 = nn.Linear(120, 10)
+        self.fc = nn.Linear(16 * 16 * 16, 10)
+        self.act = nn.ReLU(inplace=True)  # Standard ReLU
+        # No dropout — heavier training
 
     def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
-        x = x.view(-1, 32 * 5 * 5)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
+        x = self.pool(self.act(self.conv(x)))
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
         return x
