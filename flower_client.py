@@ -1,5 +1,3 @@
-# flower_client.py (Updated for MCP with unified federated model training)
-
 import flwr as fl
 import torch
 import torch.nn as nn
@@ -12,26 +10,18 @@ import argparse
 import ssl
 import copy
 
-
-# Argument parsing for client ID
+# ----------------- Parse Arguments -----------------
 parser = argparse.ArgumentParser()
 parser.add_argument("--client_id", type=int, required=True, help="Unique ID for the client")
-parser.add_argument(
-    "--model_type",
-    type=str,
-    choices=["big", "small"],
-    required=True,
-    help="Model type for the client: 'big' or 'small'"
-)
+parser.add_argument("--model_type", type=str, choices=["big", "small"], required=True, help="Model type: 'big' or 'small'")
 args = parser.parse_args()
 CLIENT_ID = args.client_id
-
+MODEL_TYPE = args.model_type
 
 ssl._create_default_https_context = ssl._create_unverified_context
-
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-# Load CIFAR-10
+# ----------------- Load CIFAR-10 -----------------
 transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize((0.5,), (0.5,))
@@ -41,19 +31,20 @@ trainloader = torch.utils.data.DataLoader(trainset, batch_size=32, shuffle=True)
 testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
 testloader = torch.utils.data.DataLoader(testset, batch_size=32, shuffle=False)
 
-# Context-aware model selection for local personalization (inference)
-context = get_system_context()
-model_choice = args.model_type
-local_model = BigCNN() if model_choice == "big" else SmallCNN()
+# ----------------- Models -----------------
+# Local personal model (used for evaluation only)
+local_model = BigCNN() if MODEL_TYPE == "big" else SmallCNN()
+local_model = local_model.to(DEVICE)
+initial_path = f"client_{CLIENT_ID}_{MODEL_TYPE}_initial.pth"
 
-print("zzzzzz", local_model)
-# Unified model for federated training
-# global_model = SmallCNN().to(DEVICE)
+torch.save(local_model.state_dict(), initial_path)
 
+
+# Federated model (used for training)
 global_model = copy.deepcopy(local_model)
-
 global_model, optimizer, privacy_engine = wrap_with_dp(global_model, trainloader)
 
+# ----------------- Flower Client -----------------
 class FlowerClient(fl.client.NumPyClient):
     def get_parameters(self, config):
         return [val.detach().cpu().numpy() for val in self.model.parameters()]
@@ -73,33 +64,35 @@ class FlowerClient(fl.client.NumPyClient):
             loss.backward()
             optimizer.step()
 
-        save_path = f"client_{CLIENT_ID}_{model_choice}.pth"
-        latest_path = f"client_{CLIENT_ID}_{model_choice}.pth"
-        torch.save(self.model.state_dict(), save_path)
-        torch.save(self.model.state_dict(), latest_path)
-
+        # Save trained model
+        # torch.save(self.model.state_dict(), initial_path)
+        torch.save(self.model._module.state_dict(), initial_path)
         return self.get_parameters(config={}), len(trainloader.dataset), {}
 
     def evaluate(self, parameters, config):
-        self.set_parameters(parameters)
-        print("hereee", self.model)
-        self.model.eval()
+        # Always evaluate local model (not federated model)
+        local_model.load_state_dict(torch.load(initial_path))  # Reset if needed
+        local_model.eval()
+
         loss_total, correct, total = 0.0, 0, 0
         criterion = nn.CrossEntropyLoss()
+
         with torch.no_grad():
             for inputs, labels in testloader:
                 inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
-                outputs = self.model(inputs)
+                outputs = local_model(inputs)
                 loss = criterion(outputs, labels)
                 loss_total += loss.item() * inputs.size(0)
                 _, predicted = outputs.max(1)
                 correct += predicted.eq(labels).sum().item()
                 total += labels.size(0)
+
         loss_avg = loss_total / total
         accuracy = correct / total
-        print(f"[Client Eval] Accuracy: {accuracy:.4f}, Loss: {loss_avg:.4f}")
+        print(f"[Client eval {CLIENT_ID} | {MODEL_TYPE}] (Local Model) Accuracy: {accuracy:.4f}, Loss: {loss_avg:.4f}")
         return loss_avg, total, {"accuracy": accuracy}
 
+# ----------------- Run -----------------
 client = FlowerClient()
-client.model = local_model
+client.model = global_model  # Only used for training
 fl.client.start_numpy_client(server_address="0.0.0.0:8080", client=client)
