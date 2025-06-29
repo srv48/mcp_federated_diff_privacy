@@ -58,6 +58,9 @@ if run:
     st.subheader("📋 Result Summary")
     st.dataframe(df, use_container_width=True)
 
+    if dp_epsilon is not None:
+        st.markdown(f"#### 🔒 Final Calculated Epsilon (ε): `{dp_epsilon:.2f}`")
+
     st.markdown("---")
     st.success("✅ Use this table to justify that privacy reduces membership inference advantage and model accuracy.")
 

@@ -3,7 +3,7 @@
 import flwr as fl
 import torch
 import torch.nn as nn
-from models import SmallCNN
+from models import BigCNN
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 import pandas as pd
@@ -35,7 +35,7 @@ def evaluate_fn(server_round, parameters, config):
     global final_parameters
     final_parameters = parameters  # Save the latest aggregated parameters
 
-    model = SmallCNN().to(DEVICE)
+    model = BigCNN().to(DEVICE)
 
     # Load parameters into model
     for param, new_param in zip(model.parameters(), parameters):
@@ -77,13 +77,13 @@ def main():
 
     fl.server.start_server(
         server_address="0.0.0.0:8080",
-        config=fl.server.ServerConfig(num_rounds=3),
+        config=fl.server.ServerConfig(num_rounds=10),
         strategy=strategy,
     )
 
     # Save final model
     print("\n[Server] Training complete. Saving final model...")
-    model = SmallCNN()
+    model = BigCNN()
     for param, new_param in zip(model.parameters(), final_parameters):
         param.data = torch.tensor(new_param, dtype=param.data.dtype)
     torch.save(model.state_dict(), "final_federated_model.pth")
@@ -101,6 +101,7 @@ def save_server_logs():
     plt.xlabel("Round")
     plt.legend()
     plt.title("Server Global Metrics")
+    plt.xticks(df["round"])
     plt.savefig("logs/server_metrics.png")
 
 atexit.register(save_server_logs)

@@ -12,6 +12,8 @@ import copy
 import atexit
 import pandas as pd
 import matplotlib.pyplot as plt
+import torch.optim as optim
+
 
 
 client_log = []
@@ -48,7 +50,7 @@ torch.save(local_model.state_dict(), initial_path)
 
 # Federated model (used for training)
 global_model = copy.deepcopy(local_model)
-global_model, optimizer, privacy_engine = wrap_with_dp(global_model, trainloader)
+# global_model, optimizer, privacy_engine = wrap_with_dp(global_model, trainloader) add back for DP
 
 # ----------------- Flower Client -----------------
 class FlowerClient(fl.client.NumPyClient):
@@ -62,6 +64,9 @@ class FlowerClient(fl.client.NumPyClient):
     def fit(self, parameters, config):
         self.set_parameters(parameters)
         self.model.train()
+
+        optimizer = optim.SGD(self.model.parameters(), lr=0.01, momentum=0.9) # to be removed for DP
+
         for inputs, labels in trainloader:
             inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
             optimizer.zero_grad()
@@ -71,8 +76,10 @@ class FlowerClient(fl.client.NumPyClient):
             optimizer.step()
 
         # Save trained model
-        # torch.save(self.model.state_dict(), initial_path)
-        torch.save(self.model._module.state_dict(), initial_path)
+        torch.save(self.model.state_dict(), initial_path)
+
+        # torch.save(self.model._module.state_dict(), initial_path) add back for DP
+
         return self.get_parameters(config={}), len(trainloader.dataset), {}
 
     def evaluate(self, parameters, config):
@@ -114,6 +121,7 @@ def save_client_logs():
     plt.xlabel("Round")
     plt.legend()
     plt.title(f"Client {CLIENT_ID} Metrics")
+    plt.xticks(df["round"]) 
     plt.savefig(f"logs/client{CLIENT_ID}_metrics.png")
 
 atexit.register(save_client_logs)
