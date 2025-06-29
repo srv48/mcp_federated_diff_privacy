@@ -9,6 +9,12 @@ from privacy_wrapper import wrap_with_dp
 import argparse
 import ssl
 import copy
+import atexit
+import pandas as pd
+import matplotlib.pyplot as plt
+
+
+client_log = []
 
 # ----------------- Parse Arguments -----------------
 parser = argparse.ArgumentParser()
@@ -89,6 +95,8 @@ class FlowerClient(fl.client.NumPyClient):
 
         loss_avg = loss_total / total
         accuracy = correct / total
+
+        client_log.append({"test_loss": loss_avg, "test_acc": accuracy})
         print(f"[Client eval {CLIENT_ID} | {MODEL_TYPE}] (Local Model) Accuracy: {accuracy:.4f}, Loss: {loss_avg:.4f}")
         return loss_avg, total, {"accuracy": accuracy}
 
@@ -96,3 +104,16 @@ class FlowerClient(fl.client.NumPyClient):
 client = FlowerClient()
 client.model = global_model  # Only used for training
 fl.client.start_numpy_client(server_address="0.0.0.0:8080", client=client)
+
+def save_client_logs():
+    df = pd.DataFrame(client_log)
+    df["round"] = range(1, len(df) + 1)
+    df.to_csv(f"logs/client{CLIENT_ID}_log.csv", index=False)
+    plt.plot(df["round"], df["test_acc"], label="Accuracy")
+    plt.plot(df["round"], df["test_loss"], label="Loss")
+    plt.xlabel("Round")
+    plt.legend()
+    plt.title(f"Client {CLIENT_ID} Metrics")
+    plt.savefig(f"logs/client{CLIENT_ID}_metrics.png")
+
+atexit.register(save_client_logs)

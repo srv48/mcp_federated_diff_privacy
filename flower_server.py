@@ -6,6 +6,12 @@ import torch.nn as nn
 from models import SmallCNN
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
+import pandas as pd
+import matplotlib.pyplot as plt
+import atexit
+
+
+server_log = []
 
 # Device configuration
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -54,6 +60,7 @@ def evaluate_fn(server_round, parameters, config):
     accuracy = correct / total
     loss_avg = loss_total / total
 
+    server_log.append({"round": server_round, "loss": loss_avg, "acc": accuracy})
     print(f"[Server] Evaluation round {server_round} | Loss: {loss_avg:.4f} | Accuracy: {accuracy:.4f}")
     return loss_avg, {"accuracy": accuracy}
 
@@ -70,7 +77,7 @@ def main():
 
     fl.server.start_server(
         server_address="0.0.0.0:8080",
-        config=fl.server.ServerConfig(num_rounds=10),
+        config=fl.server.ServerConfig(num_rounds=3),
         strategy=strategy,
     )
 
@@ -84,3 +91,16 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def save_server_logs():
+    df = pd.DataFrame(server_log)
+    df.to_csv("logs/server_log.csv", index=False)
+    plt.plot(df["round"], df["acc"], label="Accuracy")
+    plt.plot(df["round"], df["loss"], label="Loss")
+    plt.xlabel("Round")
+    plt.legend()
+    plt.title("Server Global Metrics")
+    plt.savefig("logs/server_metrics.png")
+
+atexit.register(save_server_logs)
