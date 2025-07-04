@@ -6,7 +6,10 @@ def get_system_context():
     return {"cpu": cpu_usage, "memory": mem_usage}
 
 def select_model_based_on_context(context):
-    if context["cpu"] > 70 or context["memory"] > 80:
+    if context["cpu"] > 60: 
+        # or context["memory"] > 80:
+        print("Choosing small CNN model")
         return "small"
     else:
+        print("Choosing big CNN model")
         return "large"
